@@ -28,7 +28,7 @@ public class MasjidController {
             @RequestParam(defaultValue = "1000") int radiusMeters) {
 
 
-        List<MasjidDTO> list = masjidService.fetchNearb yAndSave(lat, lng, radiusMeters);
+        List<MasjidDTO> list = masjidService.fetchNearbyAndSave(lat, lng, radiusMeters);
         return ResponseEntity.ok(new ApiResponse<>("Success", "Masjids fetched", list));
     }
 
