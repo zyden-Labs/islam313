@@ -1,17 +1,16 @@
 package com.zydenlabs.islam313.service;
 
-
-
 import com.zydenlabs.islam313.client.GooglePlacesClient;
 import com.zydenlabs.islam313.dto.MasjidDTO;
 import com.zydenlabs.islam313.entity.Masjid;
 import com.zydenlabs.islam313.repository.MasjidRepository;
 import com.zydenlabs.islam313.utils.GeoUtils;
-import jakarta.transaction.Transactional;
-import org.locationtech.jts.geom.Point;
+import lombok.Data;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalTime;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -29,21 +28,22 @@ public class MasjidService {
 
     @Transactional
     public List<MasjidDTO> fetchNearbyAndSave(double lat, double lng, int radiusMeters) {
+        // Fetch from Google
         List<MasjidDTO> google = googlePlacesClient.fetchNearbyMasjids(lat, lng, radiusMeters);
         if (google.isEmpty()) return Collections.emptyList();
 
+        // Check existing
         List<String> placeIds = google.stream()
                 .map(MasjidDTO::getPlaceId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
-
         List<Masjid> existing = masjidRepository.findByPlaceIdIn(placeIds);
         Map<String, Masjid> existingMap = existing.stream()
                 .collect(Collectors.toMap(Masjid::getPlaceId, Function.identity()));
 
-        List<MasjidDTO> result = new ArrayList<>();
-        existing.forEach(m -> result.add(mapToDTO(m)));
+        List<MasjidDTO> result = existing.stream().map(this::mapToDTO).collect(Collectors.toList());
 
+        // Insert new Masjids
         List<Masjid> toInsert = new ArrayList<>();
         for (MasjidDTO dto : google) {
             if (!existingMap.containsKey(dto.getPlaceId())) {
@@ -57,6 +57,7 @@ public class MasjidService {
                 List<Masjid> saved = masjidRepository.saveAll(toInsert);
                 saved.forEach(m -> result.add(mapToDTO(m)));
             } catch (DataIntegrityViolationException ex) {
+                // Reload in case of race condition
                 List<String> newPlaceIds = toInsert.stream()
                         .map(Masjid::getPlaceId)
                         .collect(Collectors.toList());
@@ -65,30 +66,29 @@ public class MasjidService {
             }
         }
 
-        // ✅ Use spatial query for distance and sorting
-        String wktPoint = String.format("POINT(%f %f)", lng, lat);
-        List<Masjid> nearbyMasjids = masjidRepository.findNearbyUsingSpatial(wktPoint, radiusMeters);
-
-        List<MasjidDTO> spatialResult = nearbyMasjids.stream()
-                .map(m -> {
-                    MasjidDTO dto = mapToDTO(m);
-                    // distance is already calculated by ST_Distance_Sphere in SQL
-                    return dto;
-                })
-                .collect(Collectors.toList());
-
-        return spatialResult;
+        // Use spatial query to get distances and sort
+        return findNearbyFromDb(lat, lng, radiusMeters);
     }
 
     public List<MasjidDTO> findNearbyFromDb(double lat, double lng, double radiusMeters) {
-        // ✅ Spatial query
-
         String wktPoint = String.format("POINT(%f %f)", lng, lat);
-        List<Masjid> nearbyMasjids = masjidRepository.findNearbyUsingSpatial(wktPoint, radiusMeters);
+        List<Object[]> results = masjidRepository.findNearbyWithDistance(wktPoint, radiusMeters);
 
-        return nearbyMasjids.stream()
-                .map(this::mapToDTO)
-                .collect(Collectors.toList());
+        List<MasjidDTO> dtos = new ArrayList<>();
+        for (Object[] row : results) {
+            MasjidDTO dto = new MasjidDTO();
+            dto.setId(((Number) row[0]).longValue());
+            dto.setPlaceId((String) row[1]);
+            dto.setName((String) row[2]);
+            dto.setAddress((String) row[3]);
+            dto.setLatitude(((Number) row[4]).doubleValue());
+            dto.setLongitude(((Number) row[5]).doubleValue());
+            dto.setHasWomenSection((Boolean) row[6]);
+            dto.setDistanceMeters(((Number) row[7]).doubleValue());
+            dtos.add(dto);
+        }
+
+        return dtos;
     }
 
     private MasjidDTO mapToDTO(Masjid m) {
@@ -114,8 +114,6 @@ public class MasjidService {
         return d;
     }
 
-
-
     private Masjid mapToEntity(MasjidDTO d) {
         return Masjid.builder()
                 .placeId(d.getPlaceId())
@@ -123,11 +121,10 @@ public class MasjidService {
                 .address(d.getAddress())
                 .latitude(d.getLatitude())
                 .longitude(d.getLongitude())
-                .location(GeoUtils.createPoint(d.getLatitude(), d.getLongitude()))
+                .location(GeoUtils.createPoint(d.getLongitude(), d.getLatitude())) // x=lng, y=lat
                 .hasWomenSection(Boolean.TRUE.equals(d.getHasWomenSection()))
                 .build();
     }
-
 }
 
 

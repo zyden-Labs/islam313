@@ -42,13 +42,16 @@ public interface MasjidRepository extends JpaRepository<Masjid, Long> {
     List<Masjid> findNearbyUsingSpatial(@Param("point") String wktPoint,
                                         @Param("radiusMeters") double radiusMeters);
 
-    @Query(value = "SELECT id, place_id as placeId, name, address, latitude, longitude, has_women_section as hasWomenSection, " +
-            "ST_Distance_Sphere(location, ST_GeomFromText(:point, 4326)) as distance " +
-            "FROM masjid " +
-            "WHERE ST_Distance_Sphere(location, ST_GeomFromText(:point, 4326)) <= :radiusMeters " +
-            "ORDER BY distance ASC", nativeQuery = true)
-    List<MasjidDistanceProjection> findNearbyWithDistance(@Param("point") String wktPoint,
-                                                          @Param("radiusMeters") double radiusMeters);
+    @Query(value = "SELECT m.id, m.place_id, m.name, m.address, m.latitude, m.longitude, m.has_women_section, " +
+            "ST_Distance_Sphere(m.location, ST_GeomFromText(:point, 4326)) AS distance_meters " +
+            "FROM masjid m " +
+            "WHERE ST_Distance_Sphere(m.location, ST_GeomFromText(:point, 4326)) <= :radiusMeters " +
+            "ORDER BY distance_meters ASC",
+            nativeQuery = true)
+    List<Object[]> findNearbyWithDistance(
+            @Param("point") String wktPoint,
+            @Param("radiusMeters") double radiusMeters
+    );
 }
 
 
