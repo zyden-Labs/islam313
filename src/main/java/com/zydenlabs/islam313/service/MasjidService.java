@@ -6,7 +6,9 @@ import com.zydenlabs.islam313.client.GooglePlacesClient;
 import com.zydenlabs.islam313.dto.MasjidDTO;
 import com.zydenlabs.islam313.entity.Masjid;
 import com.zydenlabs.islam313.repository.MasjidRepository;
+import com.zydenlabs.islam313.utils.GeoUtils;
 import jakarta.transaction.Transactional;
+import org.locationtech.jts.geom.Point;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +34,6 @@ public class MasjidService {
 
         List<String> placeIds = google.stream()
                 .map(MasjidDTO::getPlaceId)
-//                .map(m -> m.getPlaceId())
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
@@ -41,10 +42,8 @@ public class MasjidService {
                 .collect(Collectors.toMap(Masjid::getPlaceId, Function.identity()));
 
         List<MasjidDTO> result = new ArrayList<>();
-        // add existing
         existing.forEach(m -> result.add(mapToDTO(m)));
 
-        // create entities to insert
         List<Masjid> toInsert = new ArrayList<>();
         for (MasjidDTO dto : google) {
             if (!existingMap.containsKey(dto.getPlaceId())) {
@@ -58,8 +57,6 @@ public class MasjidService {
                 List<Masjid> saved = masjidRepository.saveAll(toInsert);
                 saved.forEach(m -> result.add(mapToDTO(m)));
             } catch (DataIntegrityViolationException ex) {
-                // Race condition: another request inserted the same place_id concurrently.
-                // Reload those placeIds and add to result.
                 List<String> newPlaceIds = toInsert.stream()
                         .map(Masjid::getPlaceId)
                         .collect(Collectors.toList());
@@ -68,12 +65,30 @@ public class MasjidService {
             }
         }
 
-        return result;
+        // ✅ Use spatial query for distance and sorting
+        String wktPoint = String.format("POINT(%f %f)", lng, lat);
+        List<Masjid> nearbyMasjids = masjidRepository.findNearbyUsingSpatial(wktPoint, radiusMeters);
+
+        List<MasjidDTO> spatialResult = nearbyMasjids.stream()
+                .map(m -> {
+                    MasjidDTO dto = mapToDTO(m);
+                    // distance is already calculated by ST_Distance_Sphere in SQL
+                    return dto;
+                })
+                .collect(Collectors.toList());
+
+        return spatialResult;
     }
 
     public List<MasjidDTO> findNearbyFromDb(double lat, double lng, double radiusMeters) {
-        List<Masjid> near = masjidRepository.findNearby(lat, lng, radiusMeters);
-        return near.stream().map(this::mapToDTO).collect(Collectors.toList());
+        // ✅ Spatial query
+
+        String wktPoint = String.format("POINT(%f %f)", lng, lat);
+        List<Masjid> nearbyMasjids = masjidRepository.findNearbyUsingSpatial(wktPoint, radiusMeters);
+
+        return nearbyMasjids.stream()
+                .map(this::mapToDTO)
+                .collect(Collectors.toList());
     }
 
     private MasjidDTO mapToDTO(Masjid m) {
@@ -99,6 +114,8 @@ public class MasjidService {
         return d;
     }
 
+
+
     private Masjid mapToEntity(MasjidDTO d) {
         return Masjid.builder()
                 .placeId(d.getPlaceId())
@@ -106,8 +123,12 @@ public class MasjidService {
                 .address(d.getAddress())
                 .latitude(d.getLatitude())
                 .longitude(d.getLongitude())
+                .location(GeoUtils.createPoint(d.getLatitude(), d.getLongitude()))
                 .hasWomenSection(Boolean.TRUE.equals(d.getHasWomenSection()))
                 .build();
     }
+
 }
+
+
 

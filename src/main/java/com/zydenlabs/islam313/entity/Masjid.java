@@ -3,11 +3,24 @@ package com.zydenlabs.islam313.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
-import java.time.LocalDateTime;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
+
+import java.time.Instant;
 import java.time.LocalTime;
 
+import static com.zydenlabs.islam313.utils.GeoUtils.createPoint;
+
 @Entity
-@Table(name = "masjid", uniqueConstraints = @UniqueConstraint(columnNames = "place_id"))
+@Table(
+        name = "masjid",
+        uniqueConstraints = @UniqueConstraint(columnNames = "place_id"),
+        indexes = {
+                @Index(name = "idx_masjid_location", columnList = "location", unique = false)
+        }
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -19,7 +32,7 @@ public class Masjid {
     private Long id;
 
     @Column(name = "place_id", nullable = false, unique = true)
-    private String placeId;        // Google place_id - our de-dup key
+    private String placeId;
 
     private String name;
     private String address;
@@ -27,7 +40,11 @@ public class Masjid {
     private Double longitude;
     private Boolean hasWomenSection = false;
 
-    // prayer times as LocalTime (no timezone for MVP)
+
+    @Column(columnDefinition = "POINT SRID 4326", nullable = false)
+    private Point location;
+
+    // Prayer times
     private LocalTime fajrAzanTime;
     private LocalTime fajrNamazTime;
     private LocalTime dhuhrAzanTime;
@@ -40,18 +57,33 @@ public class Masjid {
     private LocalTime ishaNamazTime;
     private LocalTime fridayKhutbahTime;
 
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    // Use Instant (UTC) for timestamps
+    @Column(nullable = false, updatable = false)
+    private Instant createdAt;
+
+    @Column(nullable = false)
+    private Instant updatedAt;
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
+        createdAt = Instant.now();  // Always UTC
+        updatedAt = Instant.now();  // Always UTC
+        if (latitude != null && longitude != null) {
+            this.location = createPoint(latitude, longitude);
+        }
     }
 
     @PreUpdate
     protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = Instant.now();  // Always UTC
+        if (latitude != null && longitude != null) {
+            this.location = createPoint(latitude, longitude);
+        }
     }
+
+
+
+
+
 }
 

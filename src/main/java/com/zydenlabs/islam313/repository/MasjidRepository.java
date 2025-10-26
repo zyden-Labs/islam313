@@ -12,7 +12,19 @@ public interface MasjidRepository extends JpaRepository<Masjid, Long> {
 
     List<Masjid> findByPlaceIdIn(List<String> placeIds);
 
-    // Haversine native query to find nearby masjids by radius in meters
+    // Projection interface to get distance from MySQL
+    interface MasjidDistanceProjection {
+        Long getId();
+        String getPlaceId();
+        String getName();
+        String getAddress();
+        Double getLatitude();
+        Double getLongitude();
+        Boolean getHasWomenSection();
+        Double getDistance();
+    }
+
+    // Haversine fallback
     @Query(value = "SELECT * FROM masjid " +
             "WHERE (6371000 * acos( cos(radians(:lat)) * cos(radians(latitude)) * " +
             "cos(radians(longitude) - radians(:lng)) + sin(radians(:lat)) * sin(radians(latitude)) )) <= :radiusMeters",
@@ -20,5 +32,23 @@ public interface MasjidRepository extends JpaRepository<Masjid, Long> {
     List<Masjid> findNearby(@Param("lat") double lat,
                             @Param("lng") double lng,
                             @Param("radiusMeters") double radiusMeters);
+
+    // Spatial query using POINT
+    @Query(value = "SELECT *, ST_Distance_Sphere(location, ST_GeomFromText(:point, 4326)) as distance " +
+            "FROM masjid " +
+            "WHERE ST_Distance_Sphere(location, ST_GeomFromText(:point, 4326)) <= :radiusMeters " +
+            "ORDER BY distance ASC",
+            nativeQuery = true)
+    List<Masjid> findNearbyUsingSpatial(@Param("point") String wktPoint,
+                                        @Param("radiusMeters") double radiusMeters);
+
+    @Query(value = "SELECT id, place_id as placeId, name, address, latitude, longitude, has_women_section as hasWomenSection, " +
+            "ST_Distance_Sphere(location, ST_GeomFromText(:point, 4326)) as distance " +
+            "FROM masjid " +
+            "WHERE ST_Distance_Sphere(location, ST_GeomFromText(:point, 4326)) <= :radiusMeters " +
+            "ORDER BY distance ASC", nativeQuery = true)
+    List<MasjidDistanceProjection> findNearbyWithDistance(@Param("point") String wktPoint,
+                                                          @Param("radiusMeters") double radiusMeters);
 }
+
 

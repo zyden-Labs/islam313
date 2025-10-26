@@ -12,7 +12,7 @@ public class MasjidDTO {
     private Double latitude;
     private Double longitude;
     private Boolean hasWomenSection;
-
+    private double distanceMeters;
     private LocalTime fajrAzanTime;
     private LocalTime fajrNamazTime;
     private LocalTime dhuhrAzanTime;
